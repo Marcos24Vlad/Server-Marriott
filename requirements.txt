@@ -24,8 +24,6 @@ webdriver-manager==4.0.1
 # === EXCEL PROCESSING ===
 openpyxl==3.1.2
 
-# === ASYNC SUPPORT ===
-asyncio-compat==0.1.2
 
 # === PYDANTIC PARA VALIDACIÓN ===
 pydantic==2.5.0
