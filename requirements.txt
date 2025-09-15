@@ -1,0 +1,34 @@
+fastapi
+uvicorn
+selenium
+openpyxl
+webdriver-manager
+httpx 
+jinja2 
+pytest 
+loguru
+flask-cors
+xlrd>=2.0.1
+
+# === API FRAMEWORK ===
+fastapi==0.104.1
+uvicorn==0.24.0
+
+# === CORS PARA FRONTEND ===
+python-multipart==0.0.6
+
+# === SELENIUM Y AUTOMATIZACIÓN ===
+selenium==4.16.0
+webdriver-manager==4.0.1
+
+# === EXCEL PROCESSING ===
+openpyxl==3.1.2
+
+# === ASYNC SUPPORT ===
+asyncio-compat==0.1.2
+
+# === PYDANTIC PARA VALIDACIÓN ===
+pydantic==2.5.0
+
+# === UTILIDADES ===
+python-dateutil==2.8.2
