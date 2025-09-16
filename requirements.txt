@@ -8,6 +8,7 @@ jinja2
 pytest 
 loguru
 flask-cors
+pandas==2.2.2
 xlrd>=2.0.1
 
 # === API FRAMEWORK ===
