@@ -29,177 +29,258 @@ class MarriottProcessor:
         self.nombre_afiliador = nombre_afiliador
         self.driver = None
         self.wait = None
-        self.correos_procesados = set()  # Para evitar duplicados
+        self.correos_procesados = set()
 
     async def setup_chrome_driver(self):
-        """Configuración INTELIGENTE - funciona local Y servidor"""
+        """Configuración OPTIMIZADA para Render"""
         try:
-            print("[🔧] Configurando ChromeDriver...")
+            print("[🔧] Configurando ChromeDriver para Render...")
             
-            import platform
-            sistema = platform.system()
+            # Detectar entorno
+            is_render = os.getenv('RENDER') or 'render.com' in os.getenv('RENDER_EXTERNAL_URL', '')
+            is_heroku = os.getenv('DYNO') is not None
+            is_production = is_render or is_heroku or os.getenv('PRODUCTION')
             
-            # Intentar múltiples configuraciones automáticamente
-            configuraciones = [
-                # Config 1: webdriver-manager (MÁS CONFIABLE)
-                self._config_webdriver_manager,
-                # Config 2: Variables entorno servidor (tu config actual)
-                self._config_servidor_render,
-                # Config 3: ChromeDriver del sistema
-                self._config_sistema_local,
-                # Config 4: ChromeDriver manual local
-                self._config_manual_local
-            ]
+            print(f"[📍] Entorno detectado - Render: {is_render}, Producción: {is_production}")
             
-            for i, config_func in enumerate(configuraciones, 1):
-                try:
-                    print(f"[🔄] Probando configuración {i}...")
-                    driver = await config_func()
-                    if driver:
-                        self.driver = driver
-                        self.wait = WebDriverWait(self.driver, 30)
-                        
-                        # Test básico
-                        self.driver.get("https://www.google.com")
-                        print(f"[✅] Configuración {i} EXITOSA!")
-                        
-                        # Anti detección extra
-                        self.driver.execute_script(
-                            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-                        )
-                        return True
-                        
-                except Exception as e:
-                    print(f"[⚠️] Configuración {i} falló: {str(e)[:100]}")
-                    continue
+            if is_production:
+                driver = await self._config_produccion_render()
+            else:
+                driver = await self._config_desarrollo_local()
             
-            raise Exception("❌ Todas las configuraciones fallaron")
+            if driver:
+                self.driver = driver
+                self.wait = WebDriverWait(self.driver, 30)
+                
+                # Test de conectividad
+                print("[🧪] Probando navegador...")
+                self.driver.get("https://httpbin.org/ip")
+                time.sleep(2)
+                
+                # Anti-detección
+                self.driver.execute_script(
+                    "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+                )
+                
+                print("[✅] ChromeDriver configurado exitosamente!")
+                return True
+            
+            raise Exception("❌ No se pudo configurar ChromeDriver")
             
         except Exception as e:
-            print(f"[🚨] Error crítico configurando ChromeDriver: {e}")
+            print(f"[🚨] Error configurando ChromeDriver: {e}")
             return False
 
-    async def _config_webdriver_manager(self):
-        """Configuración 1: webdriver-manager (MÁS CONFIABLE)"""
+    async def _config_produccion_render(self):
+        """Configuración específica para Render/Producción"""
+        print("[🏭] Configurando para entorno de producción...")
+        
+        # Configuración para Render con buildpacks
+        options = self._get_production_chrome_options()
+        
+        # Intentar diferentes configuraciones para Render
+        configuraciones_render = [
+            # Config 1: Google Chrome instalado por buildpack
+            {
+                'binary': '/opt/chrome/chrome',
+                'driver': '/opt/chromedriver/chromedriver'
+            },
+            # Config 2: Chrome en ubicaciones alternativas
+            {
+                'binary': '/usr/bin/google-chrome',
+                'driver': '/usr/bin/chromedriver'
+            },
+            # Config 3: Chrome estable
+            {
+                'binary': '/usr/bin/google-chrome-stable',
+                'driver': '/usr/local/bin/chromedriver'
+            },
+            # Config 4: Variables de entorno (tu config original)
+            {
+                'binary': os.getenv("CHROME_BIN", "/usr/bin/google-chrome"),
+                'driver': os.getenv("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
+            }
+        ]
+        
+        for i, config in enumerate(configuraciones_render, 1):
+            try:
+                print(f"[🔄] Probando configuración Render {i}...")
+                
+                chrome_bin = config['binary']
+                driver_path = config['driver']
+                
+                # Verificar que existan los archivos
+                if os.path.exists(chrome_bin) and os.path.exists(driver_path):
+                    print(f"[✅] Archivos encontrados - Chrome: {chrome_bin}, Driver: {driver_path}")
+                    
+                    # Hacer ejecutables
+                    os.chmod(chrome_bin, 0o755)
+                    os.chmod(driver_path, 0o755)
+                    
+                    options.binary_location = chrome_bin
+                    service = Service(driver_path)
+                    
+                    driver = webdriver.Chrome(service=service, options=options)
+                    print(f"[🎉] Configuración Render {i} EXITOSA!")
+                    return driver
+                else:
+                    print(f"[⚠️] Archivos no encontrados - Chrome: {os.path.exists(chrome_bin)}, Driver: {os.path.exists(driver_path)}")
+                    
+            except Exception as e:
+                print(f"[⚠️] Configuración Render {i} falló: {str(e)[:100]}")
+                continue
+        
+        # Si todo falla, intentar con webdriver-manager
         try:
+            print("[🔄] Intentando webdriver-manager como último recurso...")
             from webdriver_manager.chrome import ChromeDriverManager
-            from selenium.webdriver.chrome.service import Service
             
-            options = self._get_chrome_options()
             service = Service(ChromeDriverManager().install())
             driver = webdriver.Chrome(service=service, options=options)
+            print("[✅] webdriver-manager exitoso!")
             return driver
             
-        except ImportError:
-            print("[ℹ️] webdriver-manager no instalado. Ejecuta: pip install webdriver-manager")
-            raise
         except Exception as e:
-            raise Exception(f"webdriver-manager falló: {e}")
+            print(f"[❌] webdriver-manager también falló: {e}")
+        
+        raise Exception("Todas las configuraciones de producción fallaron")
 
-    async def _config_servidor_render(self):
-        """Configuración 2: Tu configuración actual del servidor"""
-        chrome_bin = os.getenv("CHROME_BIN", "/usr/bin/google-chrome")
-        chromedriver_path = os.getenv("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
+    async def _config_desarrollo_local(self):
+        """Configuración para desarrollo local"""
+        print("[🏠] Configurando para desarrollo local...")
         
-        # Solo usar si las rutas existen
-        if not (os.path.exists(chrome_bin) and os.path.exists(chromedriver_path)):
-            raise Exception("Variables de entorno del servidor no disponibles")
+        options = self._get_development_chrome_options()
         
-        options = self._get_chrome_options()
-        options.binary_location = chrome_bin
+        # Configuraciones para desarrollo
+        configuraciones_dev = [
+            # Config 1: webdriver-manager
+            self._try_webdriver_manager,
+            # Config 2: ChromeDriver del PATH
+            self._try_system_chromedriver,
+            # Config 3: ChromeDriver local
+            self._try_local_chromedriver
+        ]
         
-        service = Service(chromedriver_path)
-        driver = webdriver.Chrome(service=service, options=options)
-        return driver
+        for i, config_func in enumerate(configuraciones_dev, 1):
+            try:
+                print(f"[🔄] Probando configuración local {i}...")
+                driver = await config_func(options)
+                if driver:
+                    print(f"[✅] Configuración local {i} exitosa!")
+                    return driver
+            except Exception as e:
+                print(f"[⚠️] Configuración local {i} falló: {str(e)[:100]}")
+                continue
+        
+        raise Exception("Todas las configuraciones locales fallaron")
 
-    async def _config_sistema_local(self):
-        """Configuración 3: ChromeDriver del PATH del sistema"""
+    async def _try_webdriver_manager(self, options):
+        """Intentar webdriver-manager"""
+        from webdriver_manager.chrome import ChromeDriverManager
+        service = Service(ChromeDriverManager().install())
+        return webdriver.Chrome(service=service, options=options)
+
+    async def _try_system_chromedriver(self, options):
+        """Intentar ChromeDriver del sistema"""
         import subprocess
-        
-        # Verificar que chromedriver existe en PATH
-        try:
-            subprocess.run(['chromedriver', '--version'], 
-                          capture_output=True, check=True, timeout=5)
-        except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
-            raise Exception("chromedriver no encontrado en PATH")
-        
-        options = self._get_chrome_options()
-        service = Service()  # Usa el del PATH automáticamente
-        driver = webdriver.Chrome(service=service, options=options)
-        return driver
+        subprocess.run(['chromedriver', '--version'], capture_output=True, check=True, timeout=5)
+        service = Service()
+        return webdriver.Chrome(service=service, options=options)
 
-    async def _config_manual_local(self):
-        """Configuración 4: ChromeDriver descargado manualmente"""
+    async def _try_local_chromedriver(self, options):
+        """Intentar ChromeDriver local"""
         import platform
-        
         driver_name = 'chromedriver.exe' if platform.system() == 'Windows' else 'chromedriver'
         
-        # Buscar en varias ubicaciones
         ubicaciones = [
-            driver_name,  # En el directorio actual
+            driver_name,
             f'./{driver_name}',
             f'./drivers/{driver_name}',
             f'../drivers/{driver_name}'
         ]
         
-        driver_path = None
         for ubicacion in ubicaciones:
             if os.path.exists(ubicacion):
-                driver_path = ubicacion
-                break
+                service = Service(ubicacion)
+                return webdriver.Chrome(service=service, options=options)
         
-        if not driver_path:
-            raise Exception(f"{driver_name} no encontrado en ubicaciones locales")
-        
-        options = self._get_chrome_options()
-        service = Service(driver_path)
-        driver = webdriver.Chrome(service=service, options=options)
-        return driver
+        raise Exception(f"{driver_name} no encontrado")
 
-    def _get_chrome_options(self):
-        """Opciones optimizadas de Chrome (tu configuración actual mejorada)"""
+    def _get_production_chrome_options(self):
+        """Opciones de Chrome optimizadas para producción"""
         options = webdriver.ChromeOptions()
         
-        # === TU CONFIGURACIÓN ACTUAL (MEJORADA) ===
+        # Configuración para Render/Heroku
         options.add_argument("--headless=new")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--disable-gpu")
-        options.add_argument("--disable-features=VizDisplayCompositor")
+        options.add_argument("--disable-software-rasterizer")
+        options.add_argument("--disable-background-timer-throttling")
+        options.add_argument("--disable-backgrounding-occluded-windows")
+        options.add_argument("--disable-renderer-backgrounding")
+        options.add_argument("--disable-features=TranslateUI")
+        options.add_argument("--disable-ipc-flooding-protection")
+        options.add_argument("--disable-background-networking")
         options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_argument("--disable-web-security")
+        options.add_argument("--allow-running-insecure-content")
         options.add_argument("--disable-extensions")
         options.add_argument("--disable-plugins")
         options.add_argument("--disable-images")
-        options.add_argument("--disable-web-security")
-        options.add_argument("--allow-running-insecure-content")
+        options.add_argument("--disable-javascript") # OPCIONAL: descomenta si no necesitas JS
         
-        # === OPTIMIZACIONES EXTRA ===
-        options.add_argument("--window-size=1920,1080")
-        options.add_argument("--remote-debugging-port=9222")
+        # Configuración de memoria y rendimiento
+        options.add_argument("--memory-pressure-off")
+        options.add_argument("--max_old_space_size=4096")
+        options.add_argument("--aggressive-cache-discard")
         
-        # User agent actualizado
+        # Tamaño de ventana
+        options.add_argument("--window-size=1280,720")
+        
+        # User agent
         options.add_argument(
             "--user-agent=Mozilla/5.0 (Linux; x86_64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
             "Chrome/120.0.0.0 Safari/537.36"
         )
         
-        # Preferencias (tu configuración actual)
+        # Preferencias
         prefs = {
             "profile.default_content_setting_values": {
                 "notifications": 2,
                 "media_stream": 2,
+                "geolocation": 2,
+                "images": 2  # Deshabilitar imágenes
             },
             "profile.managed_default_content_settings": {
                 "images": 2
             }
         }
+        
         options.add_experimental_option("prefs", prefs)
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option("useAutomationExtension", False)
         
         return options
 
+    def _get_development_chrome_options(self):
+        """Opciones de Chrome para desarrollo (más permisivas)"""
+        options = webdriver.ChromeOptions()
+        
+        # Desarrollo puede no ser headless para debugging
+        # options.add_argument("--headless=new")  # Comentar para ver el navegador
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_argument("--window-size=1280,720")
+        
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option("useAutomationExtension", False)
+        
+        return options
+
+    # [Resto de métodos permanecen igual...]
     def es_correo_valido(self, correo):
         """Verifica extensión permitida y evita duplicados"""
         if not correo or '@' not in correo:

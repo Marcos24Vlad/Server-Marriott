@@ -2,23 +2,18 @@ services:
   - type: web
     name: marriott-automation-api
     env: python
-    pythonVersion: 3.11.9   # ✅ Fuerza Python estable con soporte de pandas
-    buildCommand: |
-      pip install --upgrade pip
-      pip install -r requirements.txt
-      # Instalar Google Chrome y Chromedriver
-      apt-get update
-      apt-get install -y wget gnupg
-      wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add -
-      echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list
-      apt-get update
-      apt-get install -y google-chrome-stable chromium-driver
+    pythonVersion: 3.11.9
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
-      - key: CHROMEDRIVER_PATH
-        value: /usr/bin/chromedriver
       - key: CHROME_BIN
-        value: /usr/bin/google-chrome
+        value: /opt/chrome/chrome
+      - key: CHROMEDRIVER_PATH
+        value: /opt/chromedriver/chromedriver
+      - key: RENDER
+        value: "true"
+      - key: PRODUCTION
+        value: "true"
     disk:
       name: marriott-disk
       sizeGB: 1

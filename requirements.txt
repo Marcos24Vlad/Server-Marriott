@@ -1,36 +1,14 @@
-fastapi
-uvicorn
-selenium
-openpyxl
-webdriver-manager
-httpx 
-jinja2 
-pytest 
-loguru
-flask-cors
-numpy==1.26.2
-pandas==2.2.3
-
-
-xlrd>=2.0.1
-
-# === API FRAMEWORK ===
 fastapi==0.104.1
 uvicorn==0.24.0
-
-# === CORS PARA FRONTEND ===
 python-multipart==0.0.6
-
-# === SELENIUM Y AUTOMATIZACIÓN ===
 selenium==4.16.0
 webdriver-manager==4.0.1
-
-# === EXCEL PROCESSING ===
 openpyxl==3.1.2
-
-
-# === PYDANTIC PARA VALIDACIÓN ===
-pydantic==2.8.0  # O una versión más reciente que tenga wheels precompiladas
-
-# === UTILIDADES ===
+pandas==2.2.3
+numpy==1.26.2
+pydantic==2.8.0
 python-dateutil==2.8.2
+httpx
+jinja2
+loguru
+xlrd>=2.0.1
