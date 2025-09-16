@@ -11,5 +11,5 @@ httpx
 jinja2
 loguru
 xlrd>=2.0.1
-chromedriver-autoinstaller
-selenium
+chromedriver
+webdriver-manager

@@ -95,11 +95,6 @@ class MarriottProcessor:
                 'binary': '/usr/bin/google-chrome-stable',
                 'driver': '/usr/local/bin/chromedriver'
             },
-            # Config 4: Variables de entorno (tu config original)
-            {
-                'binary': os.getenv("CHROME_BIN", "/usr/bin/google-chrome"),
-                'driver': os.getenv("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
-            }
         ]
         
         for i, config in enumerate(configuraciones_render, 1):
@@ -145,34 +140,6 @@ class MarriottProcessor:
         
         raise Exception("Todas las configuraciones de producción fallaron")
 
-    async def _config_desarrollo_local(self):
-        """Configuración para desarrollo local"""
-        print("[🏠] Configurando para desarrollo local...")
-        
-        options = self._get_development_chrome_options()
-        
-        # Configuraciones para desarrollo
-        configuraciones_dev = [
-            # Config 1: webdriver-manager
-            self._try_webdriver_manager,
-            # Config 2: ChromeDriver del PATH
-            self._try_system_chromedriver,
-            # Config 3: ChromeDriver local
-            self._try_local_chromedriver
-        ]
-        
-        for i, config_func in enumerate(configuraciones_dev, 1):
-            try:
-                print(f"[🔄] Probando configuración local {i}...")
-                driver = await config_func(options)
-                if driver:
-                    print(f"[✅] Configuración local {i} exitosa!")
-                    return driver
-            except Exception as e:
-                print(f"[⚠️] Configuración local {i} falló: {str(e)[:100]}")
-                continue
-        
-        raise Exception("Todas las configuraciones locales fallaron")
 
     async def _try_webdriver_manager(self, options):
         """Intentar webdriver-manager"""
@@ -186,25 +153,6 @@ class MarriottProcessor:
         subprocess.run(['chromedriver', '--version'], capture_output=True, check=True, timeout=5)
         service = Service()
         return webdriver.Chrome(service=service, options=options)
-
-    async def _try_local_chromedriver(self, options):
-        """Intentar ChromeDriver local"""
-        import platform
-        driver_name = 'chromedriver.exe' if platform.system() == 'Windows' else 'chromedriver'
-        
-        ubicaciones = [
-            driver_name,
-            f'./{driver_name}',
-            f'./drivers/{driver_name}',
-            f'../drivers/{driver_name}'
-        ]
-        
-        for ubicacion in ubicaciones:
-            if os.path.exists(ubicacion):
-                service = Service(ubicacion)
-                return webdriver.Chrome(service=service, options=options)
-        
-        raise Exception(f"{driver_name} no encontrado")
 
     def _get_production_chrome_options(self):
         """Opciones de Chrome optimizadas para producción"""
