@@ -1,3 +1,4 @@
+import os
 import time
 import re
 import asyncio
@@ -8,7 +9,6 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import Select
 from selenium.common.exceptions import NoSuchElementException, TimeoutException
-from webdriver_manager.chrome import ChromeDriverManager
 
 # === CONFIGURACIÓN ===
 URLS_AFILIACION = {
@@ -30,38 +30,42 @@ class MarriottProcessor:
         self.driver = None
         self.wait = None
         self.correos_procesados = set()  # Para evitar duplicados
-        
+
     async def setup_chrome_driver(self):
-        """Configuración optimizada de ChromeDriver para servidor"""
+        """Configuración optimizada de ChromeDriver para servidor Render"""
         try:
             print("[🔧] Configurando ChromeDriver...")
-            
+
+            # Tomar rutas de variables de entorno (definidas en render.yaml)
+            chrome_bin = os.getenv("CHROME_BIN", "/usr/bin/google-chrome")
+            chromedriver_path = os.getenv("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
+
             options = webdriver.ChromeOptions()
-            
+            options.binary_location = chrome_bin
+
             # === CONFIGURACIÓN PARA SERVIDOR ===
-            options.add_argument("--headless")  # Sin interfaz gráfica
+            options.add_argument("--headless=new")  # Headless moderno
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-dev-shm-usage")
             options.add_argument("--disable-gpu")
             options.add_argument("--disable-features=VizDisplayCompositor")
-            
-            # === OPTIMIZACIONES DE RENDIMIENTO ===
+
+            # === OPTIMIZACIONES ===
             options.add_argument("--disable-blink-features=AutomationControlled")
             options.add_argument("--disable-extensions")
             options.add_argument("--disable-plugins")
-            options.add_argument("--disable-images")  # Mayor velocidad
+            options.add_argument("--disable-images")
             options.add_argument("--disable-web-security")
             options.add_argument("--allow-running-insecure-content")
-            options.add_argument("--memory-pressure-off")
-            options.add_argument("--max_old_space_size=4096")
-            
-            # === USER AGENT ===
-            options.add_argument("--user-agent=Mozilla/5.0 (Linux; x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-            
-            # === ANTI-DETECCIÓN ===
-            options.add_experimental_option("excludeSwitches", ["enable-automation"])
-            options.add_experimental_option('useAutomationExtension', False)
-            
+
+            # User agent
+            options.add_argument(
+                "--user-agent=Mozilla/5.0 (Linux; x86_64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            )
+
+            # Preferencias
             prefs = {
                 "profile.default_content_setting_values": {
                     "notifications": 2,
@@ -72,23 +76,26 @@ class MarriottProcessor:
                 }
             }
             options.add_experimental_option("prefs", prefs)
-            
-            service = Service(ChromeDriverManager().install())
+            options.add_experimental_option("excludeSwitches", ["enable-automation"])
+            options.add_experimental_option("useAutomationExtension", False)
+
+            # Crear driver
+            service = Service(chromedriver_path)
             self.driver = webdriver.Chrome(service=service, options=options)
-            
-            # === CONFIGURACIONES ANTI-DETECCIÓN ===
-            self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-            self.driver.execute_cdp_cmd('Network.setUserAgentOverride', {
-                "userAgent": 'Mozilla/5.0 (Linux; x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            })
-            
+
+            # Anti detección extra
+            self.driver.execute_script(
+                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+            )
+
             self.wait = WebDriverWait(self.driver, 30)
             print("[✅] ChromeDriver configurado exitosamente")
             return True
-            
+
         except Exception as e:
             print(f"[❌] Error configurando ChromeDriver: {e}")
             return False
+
 
     def es_correo_valido(self, correo):
         """Verifica extensión permitida y evita duplicados"""
