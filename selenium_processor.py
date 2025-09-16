@@ -32,70 +32,173 @@ class MarriottProcessor:
         self.correos_procesados = set()  # Para evitar duplicados
 
     async def setup_chrome_driver(self):
-        """Configuración optimizada de ChromeDriver para servidor Render"""
+        """Configuración INTELIGENTE - funciona local Y servidor"""
         try:
             print("[🔧] Configurando ChromeDriver...")
-
-            # Tomar rutas de variables de entorno (definidas en render.yaml)
-            chrome_bin = os.getenv("CHROME_BIN", "/usr/bin/google-chrome")
-            chromedriver_path = os.getenv("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
-
-            options = webdriver.ChromeOptions()
-            options.binary_location = chrome_bin
-
-            # === CONFIGURACIÓN PARA SERVIDOR ===
-            options.add_argument("--headless=new")  # Headless moderno
-            options.add_argument("--no-sandbox")
-            options.add_argument("--disable-dev-shm-usage")
-            options.add_argument("--disable-gpu")
-            options.add_argument("--disable-features=VizDisplayCompositor")
-
-            # === OPTIMIZACIONES ===
-            options.add_argument("--disable-blink-features=AutomationControlled")
-            options.add_argument("--disable-extensions")
-            options.add_argument("--disable-plugins")
-            options.add_argument("--disable-images")
-            options.add_argument("--disable-web-security")
-            options.add_argument("--allow-running-insecure-content")
-
-            # User agent
-            options.add_argument(
-                "--user-agent=Mozilla/5.0 (Linux; x86_64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            )
-
-            # Preferencias
-            prefs = {
-                "profile.default_content_setting_values": {
-                    "notifications": 2,
-                    "media_stream": 2,
-                },
-                "profile.managed_default_content_settings": {
-                    "images": 2
-                }
-            }
-            options.add_experimental_option("prefs", prefs)
-            options.add_experimental_option("excludeSwitches", ["enable-automation"])
-            options.add_experimental_option("useAutomationExtension", False)
-
-            # Crear driver
-            service = Service(chromedriver_path)
-            self.driver = webdriver.Chrome(service=service, options=options)
-
-            # Anti detección extra
-            self.driver.execute_script(
-                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-            )
-
-            self.wait = WebDriverWait(self.driver, 30)
-            print("[✅] ChromeDriver configurado exitosamente")
-            return True
-
+            
+            import platform
+            sistema = platform.system()
+            
+            # Intentar múltiples configuraciones automáticamente
+            configuraciones = [
+                # Config 1: webdriver-manager (MÁS CONFIABLE)
+                self._config_webdriver_manager,
+                # Config 2: Variables entorno servidor (tu config actual)
+                self._config_servidor_render,
+                # Config 3: ChromeDriver del sistema
+                self._config_sistema_local,
+                # Config 4: ChromeDriver manual local
+                self._config_manual_local
+            ]
+            
+            for i, config_func in enumerate(configuraciones, 1):
+                try:
+                    print(f"[🔄] Probando configuración {i}...")
+                    driver = await config_func()
+                    if driver:
+                        self.driver = driver
+                        self.wait = WebDriverWait(self.driver, 30)
+                        
+                        # Test básico
+                        self.driver.get("https://www.google.com")
+                        print(f"[✅] Configuración {i} EXITOSA!")
+                        
+                        # Anti detección extra
+                        self.driver.execute_script(
+                            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+                        )
+                        return True
+                        
+                except Exception as e:
+                    print(f"[⚠️] Configuración {i} falló: {str(e)[:100]}")
+                    continue
+            
+            raise Exception("❌ Todas las configuraciones fallaron")
+            
         except Exception as e:
-            print(f"[❌] Error configurando ChromeDriver: {e}")
+            print(f"[🚨] Error crítico configurando ChromeDriver: {e}")
             return False
 
+    async def _config_webdriver_manager(self):
+        """Configuración 1: webdriver-manager (MÁS CONFIABLE)"""
+        try:
+            from webdriver_manager.chrome import ChromeDriverManager
+            from selenium.webdriver.chrome.service import Service
+            
+            options = self._get_chrome_options()
+            service = Service(ChromeDriverManager().install())
+            driver = webdriver.Chrome(service=service, options=options)
+            return driver
+            
+        except ImportError:
+            print("[ℹ️] webdriver-manager no instalado. Ejecuta: pip install webdriver-manager")
+            raise
+        except Exception as e:
+            raise Exception(f"webdriver-manager falló: {e}")
+
+    async def _config_servidor_render(self):
+        """Configuración 2: Tu configuración actual del servidor"""
+        chrome_bin = os.getenv("CHROME_BIN", "/usr/bin/google-chrome")
+        chromedriver_path = os.getenv("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
+        
+        # Solo usar si las rutas existen
+        if not (os.path.exists(chrome_bin) and os.path.exists(chromedriver_path)):
+            raise Exception("Variables de entorno del servidor no disponibles")
+        
+        options = self._get_chrome_options()
+        options.binary_location = chrome_bin
+        
+        service = Service(chromedriver_path)
+        driver = webdriver.Chrome(service=service, options=options)
+        return driver
+
+    async def _config_sistema_local(self):
+        """Configuración 3: ChromeDriver del PATH del sistema"""
+        import subprocess
+        
+        # Verificar que chromedriver existe en PATH
+        try:
+            subprocess.run(['chromedriver', '--version'], 
+                          capture_output=True, check=True, timeout=5)
+        except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+            raise Exception("chromedriver no encontrado en PATH")
+        
+        options = self._get_chrome_options()
+        service = Service()  # Usa el del PATH automáticamente
+        driver = webdriver.Chrome(service=service, options=options)
+        return driver
+
+    async def _config_manual_local(self):
+        """Configuración 4: ChromeDriver descargado manualmente"""
+        import platform
+        
+        driver_name = 'chromedriver.exe' if platform.system() == 'Windows' else 'chromedriver'
+        
+        # Buscar en varias ubicaciones
+        ubicaciones = [
+            driver_name,  # En el directorio actual
+            f'./{driver_name}',
+            f'./drivers/{driver_name}',
+            f'../drivers/{driver_name}'
+        ]
+        
+        driver_path = None
+        for ubicacion in ubicaciones:
+            if os.path.exists(ubicacion):
+                driver_path = ubicacion
+                break
+        
+        if not driver_path:
+            raise Exception(f"{driver_name} no encontrado en ubicaciones locales")
+        
+        options = self._get_chrome_options()
+        service = Service(driver_path)
+        driver = webdriver.Chrome(service=service, options=options)
+        return driver
+
+    def _get_chrome_options(self):
+        """Opciones optimizadas de Chrome (tu configuración actual mejorada)"""
+        options = webdriver.ChromeOptions()
+        
+        # === TU CONFIGURACIÓN ACTUAL (MEJORADA) ===
+        options.add_argument("--headless=new")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--disable-features=VizDisplayCompositor")
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_argument("--disable-extensions")
+        options.add_argument("--disable-plugins")
+        options.add_argument("--disable-images")
+        options.add_argument("--disable-web-security")
+        options.add_argument("--allow-running-insecure-content")
+        
+        # === OPTIMIZACIONES EXTRA ===
+        options.add_argument("--window-size=1920,1080")
+        options.add_argument("--remote-debugging-port=9222")
+        
+        # User agent actualizado
+        options.add_argument(
+            "--user-agent=Mozilla/5.0 (Linux; x86_64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        )
+        
+        # Preferencias (tu configuración actual)
+        prefs = {
+            "profile.default_content_setting_values": {
+                "notifications": 2,
+                "media_stream": 2,
+            },
+            "profile.managed_default_content_settings": {
+                "images": 2
+            }
+        }
+        options.add_experimental_option("prefs", prefs)
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option("useAutomationExtension", False)
+        
+        return options
 
     def es_correo_valido(self, correo):
         """Verifica extensión permitida y evita duplicados"""
