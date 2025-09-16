@@ -2,7 +2,6 @@ fastapi==0.104.1
 uvicorn==0.24.0
 python-multipart==0.0.6
 selenium==4.16.0
-webdriver-manager==4.0.1
 openpyxl==3.1.2
 pandas==2.2.3
 numpy==1.26.2
@@ -12,3 +11,5 @@ httpx
 jinja2
 loguru
 xlrd>=2.0.1
+chromedriver-autoinstaller
+selenium
