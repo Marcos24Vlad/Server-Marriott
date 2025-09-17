@@ -72,36 +72,129 @@ class MarriottProcessor:
             return False
 
     async def _setup_production_chrome(self, options):
-        """Configuración para producción con múltiples estrategias"""
+        """Configuración para producción con rutas específicas de Render"""
         print("[🏭] Configurando Chrome para producción...")
         
-        # Lista de configuraciones a probar en orden de prioridad
+        # Lista de configuraciones específicas para RENDER
         configs = [
-            # Config 1: Buildpack estándar de Heroku/Render
+            # Config 1: Buildpack de Google Chrome en Render/Heroku
             {
-                'name': 'Buildpack Chrome',
-                'chrome_bin': os.getenv('CHROME_BIN', '/opt/render/.cache/chrome/bin/chrome'),
-                'driver_path': os.getenv('CHROMEDRIVER_PATH', '/opt/render/.cache/chromedriver/bin/chromedriver')
+                'name': 'Buildpack Google Chrome',
+                'chrome_bin': '/app/.heroku-buildpack-google-chrome/opt/google/chrome/chrome',
+                'driver_path': '/app/.chromedriver/bin/chromedriver'
             },
-            # Config 2: Google Chrome instalado por buildpack
+            # Config 2: Ubicación alternativa del buildpack Chrome
             {
-                'name': 'Google Chrome Buildpack',
-                'chrome_bin': '/opt/google/chrome/chrome',
-                'driver_path': '/opt/chromedriver/chromedriver'
+                'name': 'Buildpack Chrome Alt',
+                'chrome_bin': '/app/.google-chrome/chrome',
+                'driver_path': '/app/.chromedriver/chromedriver'
             },
-            # Config 3: Chrome estable del sistema
+            # Config 3: Variables de entorno personalizadas
             {
-                'name': 'Sistema Chrome',
+                'name': 'Variables Entorno',
+                'chrome_bin': os.getenv('CHROME_BIN', '/usr/bin/google-chrome-stable'),
+                'driver_path': os.getenv('CHROMEDRIVER_PATH', '/usr/local/bin/chromedriver')
+            },
+            # Config 4: Sistema estándar Linux
+            {
+                'name': 'Sistema Linux',
                 'chrome_bin': '/usr/bin/google-chrome-stable',
                 'driver_path': '/usr/bin/chromedriver'
             },
-            # Config 4: Chrome genérico
+            # Config 5: Chrome genérico
             {
                 'name': 'Chrome genérico',
                 'chrome_bin': '/usr/bin/google-chrome',
                 'driver_path': '/usr/local/bin/chromedriver'
+            },
+            # Config 6: Chromium como respaldo
+            {
+                'name': 'Chromium respaldo',
+                'chrome_bin': '/usr/bin/chromium-browser',
+                'driver_path': '/usr/bin/chromedriver'
             }
         ]
+        
+        for config in configs:
+            try:
+                print(f"[🔄] Probando {config['name']}...")
+                
+                # Verificar binarios
+                chrome_exists = os.path.isfile(config['chrome_bin'])
+                driver_exists = os.path.isfile(config['driver_path'])
+                
+                print(f"[📍] Chrome: {config['chrome_bin']} ({'✅' if chrome_exists else '❌'})")
+                print(f"[📍] Driver: {config['driver_path']} ({'✅' if driver_exists else '❌'})")
+                
+                if chrome_exists and driver_exists:
+                    # Hacer ejecutables
+                    try:
+                        os.chmod(config['chrome_bin'], 0o755)
+                        os.chmod(config['driver_path'], 0o755)
+                    except Exception as e:
+                        print(f"[⚠️] No se pudieron cambiar permisos: {e}")
+                    
+                    # Configurar binario de Chrome
+                    options.binary_location = config['chrome_bin']
+                    
+                    # Crear servicio
+                    service = Service(config['driver_path'])
+                    
+                    # Intentar crear driver
+                    driver = webdriver.Chrome(service=service, options=options)
+                    print(f"[🎉] {config['name']} configurado exitosamente!")
+                    return driver
+                
+            except Exception as e:
+                print(f"[⚠️] {config['name']} falló: {str(e)[:100]}...")
+                continue
+        
+        # Si todo falla, buscar dinámicamente
+        print("[🔄] Búsqueda dinámica como último recurso...")
+        try:
+            # Buscar Chrome
+            chrome_search = [
+                "/app/.heroku-buildpack-google-chrome/opt/google/chrome/chrome",
+                "/app/.google-chrome/chrome", 
+                "/usr/bin/google-chrome-stable",
+                "/usr/bin/google-chrome",
+                "/usr/bin/chromium-browser"
+            ]
+            
+            chrome_found = None
+            for path in chrome_search:
+                if os.path.isfile(path):
+                    chrome_found = path
+                    break
+            
+            # Buscar ChromeDriver
+            driver_search = [
+                "/app/.chromedriver/bin/chromedriver",
+                "/app/.chromedriver/chromedriver",
+                "/usr/bin/chromedriver",
+                "/usr/local/bin/chromedriver"
+            ]
+            
+            driver_found = None
+            for path in driver_search:
+                if os.path.isfile(path):
+                    driver_found = path
+                    break
+            
+            if chrome_found and driver_found:
+                print(f"[🎯] Búsqueda dinámica exitosa:")
+                print(f"[📍] Chrome encontrado: {chrome_found}")
+                print(f"[📍] Driver encontrado: {driver_found}")
+                
+                options.binary_location = chrome_found
+                service = Service(driver_found)
+                driver = webdriver.Chrome(service=service, options=options)
+                return driver
+        
+        except Exception as e:
+            print(f"[❌] Búsqueda dinámica falló: {e}")
+        
+        raise Exception("❌ CRÍTICO: No se pudo configurar Chrome en ninguna configuración de producción")
         
         for config in configs:
             try:

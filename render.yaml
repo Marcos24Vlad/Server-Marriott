@@ -4,43 +4,98 @@ services:
     env: python
     region: oregon
     plan: starter
+    
     buildCommand: |
-      # Instalar dependencias de Python
+      # Actualizar pip
       pip install --upgrade pip
       pip install -r requirements.txt
       
       # Crear directorios necesarios
-      mkdir -p /opt/render/project/src/chrome
-      mkdir -p /opt/render/project/src/temp_results
+      mkdir -p temp_results
+      mkdir -p logs
       
-      # Configurar permisos
-      chmod 755 /opt/render/project/src
-    
-    startCommand: |
-      # Verificar instalación de Chrome
-      echo "🔍 Verificando instalación de Chrome..."
-      which google-chrome-stable || echo "❌ Chrome no encontrado"
+      # Verificar instalaciones
+      echo "🔍 Verificando instalaciones después del build..."
+      which google-chrome-stable || which google-chrome || which chromium-browser || echo "❌ Chrome no encontrado"
       which chromedriver || echo "❌ ChromeDriver no encontrado"
       
-      # Iniciar servidor
-      cd /opt/render/project/src && python main.py
-    
+      # Buscar rutas reales de Chrome
+      echo "📍 Buscando rutas de Chrome..."
+      find /app -name "chrome" -type f -executable 2>/dev/null || echo "Chrome no encontrado en /app"
+      find /usr -name "*chrome*" -type f -executable 2>/dev/null | head -5 || echo "Chrome no encontrado en /usr"
+      find /opt -name "*chrome*" -type f -executable 2>/dev/null | head -5 || echo "Chrome no encontrado en /opt"
+      
+      # Buscar rutas de ChromeDriver
+      echo "📍 Buscando rutas de ChromeDriver..."
+      find /app -name "chromedriver" -type f -executable 2>/dev/null || echo "ChromeDriver no encontrado en /app"
+      find /usr -name "chromedriver" -type f -executable 2>/dev/null || echo "ChromeDriver no encontrado en /usr"
+      find /opt -name "chromedriver" -type f -executable 2>/dev/null || echo "ChromeDriver no encontrado en /opt"
+      
+    startCommand: |
+      echo "🚀 Iniciando Marriott Automation Server..."
+      
+      # Verificar variables de entorno
+      echo "📋 Variables de entorno:"
+      echo "RENDER: $RENDER"
+      echo "CHROME_BIN: $CHROME_BIN"
+      echo "CHROMEDRIVER_PATH: $CHROMEDRIVER_PATH"
+      echo "DISPLAY: $DISPLAY"
+      
+      # Ejecutar script de inicio
+      chmod +x start.sh
+      ./start.sh
+
     # Variables de entorno
     envVars:
+      # === ENTORNO ===
       - key: RENDER
         value: "true"
       - key: PRODUCTION
         value: "true"
       - key: PYTHONPATH
         value: "/opt/render/project/src"
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: PYTHONDONTWRITEBYTECODE
+        value: "1"
+
+      # === SERVIDOR ===
+      - key: PORT
+        value: "10000"
+      - key: HOST
+        value: "0.0.0.0"
+
+      # === CHROME (rutas específicas para buildpacks de Render) ===
       - key: CHROME_BIN
-        value: "/opt/render/.cache/chrome/bin/chrome"
-      - key: CHROMEDRIVER_PATH
-        value: "/opt/render/.cache/chromedriver/bin/chromedriver"
+        value: "/app/.heroku-buildpack-google-chrome/opt/google/chrome/chrome"
+      - key: CHROMEDRIVER_PATH  
+        value: "/app/.chromedriver/bin/chromedriver"
+
+      # === DISPLAY ===
       - key: DISPLAY
         value: ":99"
-    
-    # Buildpacks para Chrome
+
+      # === SELENIUM ===
+      - key: HEADLESS
+        value: "true"
+      - key: SELENIUM_TIMEOUT
+        value: "30"
+      - key: WINDOW_SIZE
+        value: "1920x1080"
+
+      # === ARCHIVOS ===
+      - key: TEMP_DIR
+        value: "temp_results"
+      - key: LOG_LEVEL
+        value: "INFO"
+
+      # === URLs MARRIOTT ===
+      - key: URL_EXPRESS
+        value: "https://www.joinmarriottbonvoy.com/calaqr/s/ES/ch/cunxc"
+      - key: URL_JUNIOR
+        value: "https://www.joinmarriottbonvoy.com/calaqr/s/ES/ch/cunjc"
+
+    # Buildpacks en orden correcto
     buildpacks:
       - url: https://github.com/heroku/heroku-buildpack-python
       - url: https://github.com/heroku/heroku-buildpack-google-chrome
