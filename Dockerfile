@@ -1,55 +1,74 @@
-# Imagen base ligera de Python
+# Usar imagen Python con Ubuntu para compatibilidad
 FROM python:3.11-slim
 
-# Evitar prompts de instalación
+# Variables de entorno
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
 ENV DEBIAN_FRONTEND=noninteractive
+ENV DISPLAY=:99
 
-# Instalar dependencias del sistema necesarias para Chrome
+# Crear usuario no root
+RUN useradd -m -u 1000 appuser
+
+# Instalar dependencias del sistema
 RUN apt-get update && apt-get install -y \
     wget \
-    gnupg \
-    unzip \
     curl \
+    unzip \
+    xvfb \
     fonts-liberation \
     libasound2 \
     libatk-bridge2.0-0 \
-    libatk1.0-0 \
-    libcups2 \
-    libdbus-1-3 \
-    libgdk-pixbuf2.0-0 \
-    libnspr4 \
-    libnss3 \
-    libx11-xcb1 \
+    libdrm2 \
+    libxkbcommon0 \
+    libxss1 \
+    libgconf-2-4 \
+    libxrandr2 \
+    libasound2 \
+    libpangocairo-1.0-0 \
+    libgtk-3-0 \
     libxcomposite1 \
     libxdamage1 \
-    libxrandr2 \
-    xdg-utils \
     && rm -rf /var/lib/apt/lists/*
 
-# Instalar Google Chrome estable
+# Instalar Google Chrome
 RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | apt-key add - \
-    && echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
+    && echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list \
     && apt-get update \
-    && apt-get install -y google-chrome-stable
+    && apt-get install -y google-chrome-stable \
+    && rm -rf /var/lib/apt/lists/*
 
-# Establecer directorio de trabajo
+# Instalar ChromeDriver
+RUN CHROME_VERSION=$(google-chrome-stable --version | cut -d " " -f3 | cut -d "." -f1) \
+    && CHROMEDRIVER_VERSION=$(curl -s "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_${CHROME_VERSION}") \
+    && wget -O /tmp/chromedriver.zip "https://chromedriver.storage.googleapis.com/${CHROMEDRIVER_VERSION}/chromedriver_linux64.zip" \
+    && unzip /tmp/chromedriver.zip -d /usr/local/bin/ \
+    && rm /tmp/chromedriver.zip \
+    && chmod +x /usr/local/bin/chromedriver
+
+# Crear directorio de la aplicación
 WORKDIR /app
 
-# Instalar dependencias de Python
+# Copiar requirements
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r requirements.txt
 
-# Copiar el resto del código
+# Instalar dependencias Python
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copiar código de la aplicación
 COPY . .
 
-# Variables de entorno para producción
-ENV RENDER=true
-ENV PRODUCTION=true
-ENV PORT=10000
+# Crear directorios necesarios
+RUN mkdir -p temp_results logs
+
+# Cambiar permisos
+RUN chown -R appuser:appuser /app
+
+# Cambiar a usuario no root
+USER appuser
 
 # Exponer puerto
-EXPOSE 10000
+EXPOSE 8000
 
 # Comando de inicio
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "10000"]
+CMD ["python", "main.py"]

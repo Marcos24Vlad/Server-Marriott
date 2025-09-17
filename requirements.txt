@@ -1,15 +1,25 @@
 fastapi==0.104.1
-uvicorn==0.24.0
-python-multipart==0.0.6
+uvicorn[standard]==0.24.0
 selenium==4.16.0
+webdriver-manager==4.0.1
+pandas==2.1.4
 openpyxl==3.1.2
-pandas==2.2.3
-numpy==1.26.2
-pydantic==2.8.0
-python-dateutil==2.8.2
-httpx
-jinja2
-loguru
-xlrd>=2.0.1
-chromedriver
-webdriver-manager
+python-multipart==0.0.6
+python-dotenv==1.0.0
+aiofiles==23.2.0
+pydantic==2.5.0
+httpx==0.25.2
+xlsxwriter==3.1.9
+jinja2==3.1.2
+
+# Para logging y debugging
+loguru==0.7.2
+
+# Para manejo de archivos temporales
+tempfile2==2.0.0
+
+# Para validación de datos
+email-validator==2.1.0
+
+# Para manejo de excepciones
+tenacity==8.2.3

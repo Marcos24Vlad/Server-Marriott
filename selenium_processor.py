@@ -2,6 +2,8 @@ import os
 import time
 import re
 import asyncio
+import subprocess
+import shutil
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
@@ -32,35 +34,33 @@ class MarriottProcessor:
         self.correos_procesados = set()
 
     async def setup_chrome_driver(self):
-        """Configuración OPTIMIZADA para Render"""
+        """Configuración MEJORADA para Render con detección inteligente"""
         try:
-            print("[🔧] Configurando ChromeDriver para Render...")
+            print("[🔧] Configurando ChromeDriver para entorno de producción...")
             
             # Detectar entorno
             is_render = os.getenv('RENDER') or 'render.com' in os.getenv('RENDER_EXTERNAL_URL', '')
-            is_heroku = os.getenv('DYNO') is not None
-            is_production = is_render or is_heroku or os.getenv('PRODUCTION')
+            is_production = is_render or os.getenv('PRODUCTION') or os.getenv('DYNO')
             
             print(f"[📍] Entorno detectado - Render: {is_render}, Producción: {is_production}")
             
+            # Configurar opciones de Chrome
+            options = self._get_chrome_options(is_production)
+            
             if is_production:
-                driver = await self._config_produccion_render()
+                driver = await self._setup_production_chrome(options)
             else:
-                driver = await self._config_desarrollo_local()
+                driver = await self._setup_local_chrome(options)
             
             if driver:
                 self.driver = driver
                 self.wait = WebDriverWait(self.driver, 30)
                 
                 # Test de conectividad
-                print("[🧪] Probando navegador...")
-                self.driver.get("https://httpbin.org/ip")
-                time.sleep(2)
+                await self._test_browser_connection()
                 
                 # Anti-detección
-                self.driver.execute_script(
-                    "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-                )
+                await self._setup_anti_detection()
                 
                 print("[✅] ChromeDriver configurado exitosamente!")
                 return True
@@ -71,120 +71,155 @@ class MarriottProcessor:
             print(f"[🚨] Error configurando ChromeDriver: {e}")
             return False
 
-    async def _config_produccion_render(self):
-        """Configuración específica para Render/Producción"""
-        print("[🏭] Configurando para entorno de producción...")
+    async def _setup_production_chrome(self, options):
+        """Configuración para producción con múltiples estrategias"""
+        print("[🏭] Configurando Chrome para producción...")
         
-        # Configuración para Render con buildpacks
-        options = self._get_production_chrome_options()
-        
-        # Intentar diferentes configuraciones para Render
-        configuraciones_render = [
-            # Config 1: Google Chrome instalado por buildpack
+        # Lista de configuraciones a probar en orden de prioridad
+        configs = [
+            # Config 1: Buildpack estándar de Heroku/Render
             {
-                'binary': '/opt/chrome/chrome',
-                'driver': '/opt/chromedriver/chromedriver'
+                'name': 'Buildpack Chrome',
+                'chrome_bin': os.getenv('CHROME_BIN', '/opt/render/.cache/chrome/bin/chrome'),
+                'driver_path': os.getenv('CHROMEDRIVER_PATH', '/opt/render/.cache/chromedriver/bin/chromedriver')
             },
-            # Config 2: Chrome en ubicaciones alternativas
+            # Config 2: Google Chrome instalado por buildpack
             {
-                'binary': '/usr/bin/google-chrome',
-                'driver': '/usr/bin/chromedriver'
+                'name': 'Google Chrome Buildpack',
+                'chrome_bin': '/opt/google/chrome/chrome',
+                'driver_path': '/opt/chromedriver/chromedriver'
             },
-            # Config 3: Chrome estable
+            # Config 3: Chrome estable del sistema
             {
-                'binary': '/usr/bin/google-chrome-stable',
-                'driver': '/usr/local/bin/chromedriver'
+                'name': 'Sistema Chrome',
+                'chrome_bin': '/usr/bin/google-chrome-stable',
+                'driver_path': '/usr/bin/chromedriver'
             },
+            # Config 4: Chrome genérico
+            {
+                'name': 'Chrome genérico',
+                'chrome_bin': '/usr/bin/google-chrome',
+                'driver_path': '/usr/local/bin/chromedriver'
+            }
         ]
         
-        for i, config in enumerate(configuraciones_render, 1):
+        for config in configs:
             try:
-                print(f"[🔄] Probando configuración Render {i}...")
+                print(f"[🔄] Probando {config['name']}...")
                 
-                chrome_bin = config['binary']
-                driver_path = config['driver']
+                # Verificar binarios
+                chrome_exists = os.path.isfile(config['chrome_bin'])
+                driver_exists = os.path.isfile(config['driver_path'])
                 
-                # Verificar que existan los archivos
-                if os.path.exists(chrome_bin) and os.path.exists(driver_path):
-                    print(f"[✅] Archivos encontrados - Chrome: {chrome_bin}, Driver: {driver_path}")
-                    
+                print(f"[📍] Chrome: {config['chrome_bin']} ({'✅' if chrome_exists else '❌'})")
+                print(f"[📍] Driver: {config['driver_path']} ({'✅' if driver_exists else '❌'})")
+                
+                if chrome_exists and driver_exists:
                     # Hacer ejecutables
-                    os.chmod(chrome_bin, 0o755)
-                    os.chmod(driver_path, 0o755)
+                    os.chmod(config['chrome_bin'], 0o755)
+                    os.chmod(config['driver_path'], 0o755)
                     
-                    options.binary_location = chrome_bin
-                    service = Service(driver_path)
+                    # Configurar binario de Chrome
+                    options.binary_location = config['chrome_bin']
                     
+                    # Crear servicio
+                    service = Service(config['driver_path'])
+                    
+                    # Intentar crear driver
                     driver = webdriver.Chrome(service=service, options=options)
-                    print(f"[🎉] Configuración Render {i} EXITOSA!")
+                    print(f"[🎉] {config['name']} configurado exitosamente!")
                     return driver
-                else:
-                    print(f"[⚠️] Archivos no encontrados - Chrome: {os.path.exists(chrome_bin)}, Driver: {os.path.exists(driver_path)}")
-                    
+                
             except Exception as e:
-                print(f"[⚠️] Configuración Render {i} falló: {str(e)[:100]}")
+                print(f"[⚠️] {config['name']} falló: {str(e)[:100]}...")
                 continue
         
-        # Si todo falla, intentar con webdriver-manager
+        # Estrategia de respaldo: webdriver-manager
         try:
-            print("[🔄] Intentando webdriver-manager como último recurso...")
+            print("[🔄] Intentando webdriver-manager como respaldo...")
             from webdriver_manager.chrome import ChromeDriverManager
             
-            service = Service(ChromeDriverManager().install())
+            # Instalar ChromeDriver
+            driver_path = ChromeDriverManager().install()
+            service = Service(driver_path)
+            
+            # Buscar Chrome automáticamente
+            chrome_paths = [
+                '/usr/bin/google-chrome-stable',
+                '/usr/bin/google-chrome',
+                '/usr/bin/chromium-browser',
+                '/opt/google/chrome/chrome'
+            ]
+            
+            for chrome_path in chrome_paths:
+                if os.path.isfile(chrome_path):
+                    options.binary_location = chrome_path
+                    break
+            
             driver = webdriver.Chrome(service=service, options=options)
             print("[✅] webdriver-manager exitoso!")
             return driver
             
         except Exception as e:
-            print(f"[❌] webdriver-manager también falló: {e}")
+            print(f"[❌] webdriver-manager falló: {e}")
         
         raise Exception("Todas las configuraciones de producción fallaron")
 
+    async def _setup_local_chrome(self, options):
+        """Configuración para desarrollo local"""
+        print("[🏠] Configurando Chrome para desarrollo local...")
+        
+        try:
+            # Intentar ChromeDriver del sistema
+            service = Service()
+            driver = webdriver.Chrome(service=service, options=options)
+            print("[✅] Chrome local configurado!")
+            return driver
+            
+        except Exception:
+            # Usar webdriver-manager para local
+            try:
+                from webdriver_manager.chrome import ChromeDriverManager
+                service = Service(ChromeDriverManager().install())
+                driver = webdriver.Chrome(service=service, options=options)
+                print("[✅] Chrome local con webdriver-manager configurado!")
+                return driver
+            except Exception as e:
+                raise Exception(f"No se pudo configurar Chrome local: {e}")
 
-    async def _try_webdriver_manager(self, options):
-        """Intentar webdriver-manager"""
-        from webdriver_manager.chrome import ChromeDriverManager
-        service = Service(ChromeDriverManager().install())
-        return webdriver.Chrome(service=service, options=options)
-
-    async def _try_system_chromedriver(self, options):
-        """Intentar ChromeDriver del sistema"""
-        import subprocess
-        subprocess.run(['chromedriver', '--version'], capture_output=True, check=True, timeout=5)
-        service = Service()
-        return webdriver.Chrome(service=service, options=options)
-
-    def _get_production_chrome_options(self):
-        """Opciones de Chrome optimizadas para producción"""
+    def _get_chrome_options(self, is_production=True):
+        """Opciones optimizadas de Chrome"""
         options = webdriver.ChromeOptions()
         
-        # Configuración para Render/Heroku
-        options.add_argument("--headless=new")
+        # Opciones básicas (siempre necesarias)
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--disable-gpu")
-        options.add_argument("--disable-software-rasterizer")
-        options.add_argument("--disable-background-timer-throttling")
-        options.add_argument("--disable-backgrounding-occluded-windows")
-        options.add_argument("--disable-renderer-backgrounding")
-        options.add_argument("--disable-features=TranslateUI")
-        options.add_argument("--disable-ipc-flooding-protection")
-        options.add_argument("--disable-background-networking")
+        options.add_argument("--window-size=1920,1080")
+        
+        if is_production:
+            # Opciones específicas para producción
+            options.add_argument("--headless=new")
+            options.add_argument("--disable-software-rasterizer")
+            options.add_argument("--disable-background-timer-throttling")
+            options.add_argument("--disable-backgrounding-occluded-windows")
+            options.add_argument("--disable-renderer-backgrounding")
+            options.add_argument("--disable-features=TranslateUI,VizDisplayCompositor")
+            options.add_argument("--disable-extensions")
+            options.add_argument("--disable-plugins")
+            options.add_argument("--disable-images")
+            options.add_argument("--disable-javascript")  # Comentar si necesitas JS
+            options.add_argument("--memory-pressure-off")
+            options.add_argument("--aggressive-cache-discard")
+        else:
+            # Opciones para desarrollo (más permisivas)
+            print("[💻] Configurando opciones de desarrollo")
+            # options.add_argument("--headless=new")  # Comentar para ver navegador
+        
+        # Anti-detección
         options.add_argument("--disable-blink-features=AutomationControlled")
         options.add_argument("--disable-web-security")
         options.add_argument("--allow-running-insecure-content")
-        options.add_argument("--disable-extensions")
-        options.add_argument("--disable-plugins")
-        options.add_argument("--disable-images")
-        options.add_argument("--disable-javascript") # OPCIONAL: descomenta si no necesitas JS
-        
-        # Configuración de memoria y rendimiento
-        options.add_argument("--memory-pressure-off")
-        options.add_argument("--max_old_space_size=4096")
-        options.add_argument("--aggressive-cache-discard")
-        
-        # Tamaño de ventana
-        options.add_argument("--window-size=1280,720")
         
         # User agent
         options.add_argument(
@@ -199,10 +234,10 @@ class MarriottProcessor:
                 "notifications": 2,
                 "media_stream": 2,
                 "geolocation": 2,
-                "images": 2  # Deshabilitar imágenes
+                "images": 2 if is_production else 1
             },
             "profile.managed_default_content_settings": {
-                "images": 2
+                "images": 2 if is_production else 1
             }
         }
         
@@ -212,23 +247,51 @@ class MarriottProcessor:
         
         return options
 
-    def _get_development_chrome_options(self):
-        """Opciones de Chrome para desarrollo (más permisivas)"""
-        options = webdriver.ChromeOptions()
-        
-        # Desarrollo puede no ser headless para debugging
-        # options.add_argument("--headless=new")  # Comentar para ver el navegador
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_argument("--window-size=1280,720")
-        
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option("useAutomationExtension", False)
-        
-        return options
+    async def _test_browser_connection(self):
+        """Probar conexión del navegador"""
+        try:
+            print("[🧪] Probando conexión del navegador...")
+            self.driver.get("https://httpbin.org/ip")
+            await asyncio.sleep(2)
+            
+            # Verificar que la página cargó
+            page_title = self.driver.title
+            if page_title:
+                print(f"[✅] Navegador funcionando - Título: {page_title}")
+            else:
+                print("[⚠️] Navegador funciona pero sin título de página")
+                
+        except Exception as e:
+            print(f"[⚠️] Test de navegador parcialmente fallido: {e}")
 
-    # [Resto de métodos permanecen igual...]
+    async def _setup_anti_detection(self):
+        """Configurar anti-detección"""
+        try:
+            # Script para ocultar automatización
+            self.driver.execute_script("""
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                });
+                
+                // Ocultar Chrome automation
+                delete navigator.__proto__.webdriver;
+                
+                // Simular plugins
+                Object.defineProperty(navigator, 'plugins', {
+                    get: () => [1, 2, 3, 4, 5]
+                });
+                
+                // Simular idiomas
+                Object.defineProperty(navigator, 'languages', {
+                    get: () => ['es-ES', 'es', 'en']
+                });
+            """)
+            print("[🥷] Anti-detección configurada")
+            
+        except Exception as e:
+            print(f"[⚠️] Anti-detección falló: {e}")
+
+    # [Resto de métodos permanecen iguales...]
     def es_correo_valido(self, correo):
         """Verifica extensión permitida y evita duplicados"""
         if not correo or '@' not in correo:
@@ -253,22 +316,30 @@ class MarriottProcessor:
         try:
             # Scroll al elemento
             self.driver.execute_script("arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});", campo)
-            time.sleep(0.2)
+            time.sleep(0.3)
             
             # Focus y limpiar
             self.driver.execute_script("arguments[0].focus();", campo)
             campo.clear()
+            time.sleep(0.1)
             
             # Llenar con múltiples métodos
+            success = False
             try:
                 campo.send_keys(valor)
+                success = True
             except Exception:
-                self.driver.execute_script("arguments[0].value = arguments[1];", campo, valor)
-                self.driver.execute_script("arguments[0].dispatchEvent(new Event('input', { bubbles: true }));", campo)
+                try:
+                    self.driver.execute_script("arguments[0].value = arguments[1];", campo, valor)
+                    self.driver.execute_script("arguments[0].dispatchEvent(new Event('input', { bubbles: true }));", campo)
+                    success = True
+                except Exception as e:
+                    print(f"[❌] Error llenando campo: {e}")
             
             # Verificar que se llenó
-            valor_actual = campo.get_attribute('value')
-            success = valor_actual == valor
+            if success:
+                valor_actual = campo.get_attribute('value')
+                success = valor_actual == valor
             
             print(f"[{'✅' if success else '⚠️'}] {nombre_campo}: {valor}")
             return success
@@ -378,14 +449,14 @@ class MarriottProcessor:
         print("[🔍] Buscando código de afiliación...")
         
         # Espera inteligente para carga de página
-        for i in range(15):
+        for i in range(20):  # Aumentado el tiempo de espera
             try:
                 url_actual = self.driver.current_url.lower()
                 if "confirmation" in url_actual or "success" in url_actual:
                     break
                 
                 page_text = self.driver.page_source.lower()
-                if any(keyword in page_text for keyword in ["confirmation", "member", "congratulations"]):
+                if any(keyword in page_text for keyword in ["confirmation", "member", "congratulations", "bienvenido"]):
                     break
                     
             except Exception:
@@ -403,7 +474,10 @@ class MarriottProcessor:
             "//div[contains(@class, 'success')]//strong",
             "//span[string-length(text()) >= 8 and string-length(text()) <= 15]",
             "//*[contains(text(), 'number')]/following-sibling::*",
-            "//*[contains(text(), 'código')]/following-sibling::*"
+            "//*[contains(text(), 'código')]/following-sibling::*",
+            "//h1//text()[string-length(.) >= 8]",
+            "//h2//text()[string-length(.) >= 8]",
+            "//p//strong[string-length(text()) >= 8]"
         ]
         
         for selector in selectores_codigo:
@@ -471,8 +545,14 @@ class MarriottProcessor:
             self.driver.get(url)
             
             # Esperar formulario
-            self.wait.until(EC.presence_of_element_located((By.ID, "partial_enroll_form")))
-            time.sleep(1)
+            await asyncio.sleep(3)  # Espera fija inicial
+            
+            try:
+                self.wait.until(EC.presence_of_element_located((By.ID, "partial_enroll_form")))
+            except TimeoutException:
+                print("[⚠️] Formulario tardó en cargar, continuando...")
+            
+            await asyncio.sleep(1)
             
             # === LLENAR FORMULARIO ===
             
@@ -512,6 +592,9 @@ class MarriottProcessor:
             # 5. Marcar checkboxes
             self.marcar_checkboxes_inteligente()
             
+            # Pequeña pausa antes de enviar
+            await asyncio.sleep(2)
+            
             # 6. Enviar formulario
             localizadores_submit = [
                 (By.ID, "ctl00_PartialEnrollFormPlaceholder_partial_enroll_EnrollButton"),
@@ -527,7 +610,7 @@ class MarriottProcessor:
             # Enviar
             try:
                 self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", boton_submit)
-                time.sleep(0.5)
+                await asyncio.sleep(0.5)
                 self.driver.execute_script("arguments[0].click();", boton_submit)
             except Exception:
                 boton_submit.click()
@@ -535,6 +618,7 @@ class MarriottProcessor:
             print("[📤] Formulario enviado")
             
             # 7. Buscar código
+            await asyncio.sleep(3)  # Esperar respuesta del servidor
             codigo = self.buscar_codigo_afiliacion_inteligente()
             
             if codigo:

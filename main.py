@@ -14,6 +14,103 @@ from selenium_processor import MarriottProcessor
 import uvicorn
 import pandas as pd
 
+# Agregar esta ruta a tu main.py
+
+import os
+import subprocess
+from fastapi import APIRouter
+
+router = APIRouter()
+
+@router.get("/health")
+async def health_check():
+    """Endpoint para verificar el estado del servidor y Chrome"""
+    try:
+        # Verificar entorno
+        is_render = os.getenv('RENDER') or 'render.com' in os.getenv('RENDER_EXTERNAL_URL', '')
+        is_production = is_render or os.getenv('PRODUCTION')
+        
+        # Buscar Chrome
+        chrome_paths = [
+            '/usr/bin/google-chrome-stable',
+            '/usr/bin/google-chrome',
+            '/opt/google/chrome/chrome',
+            '/opt/render/.cache/chrome/bin/chrome',
+            os.getenv('CHROME_BIN', '')
+        ]
+        
+        chrome_found = None
+        for path in chrome_paths:
+            if path and os.path.isfile(path):
+                chrome_found = path
+                break
+        
+        # Buscar ChromeDriver
+        driver_paths = [
+            '/usr/local/bin/chromedriver',
+            '/usr/bin/chromedriver',
+            '/opt/chromedriver/chromedriver',
+            '/opt/render/.cache/chromedriver/bin/chromedriver',
+            os.getenv('CHROMEDRIVER_PATH', '')
+        ]
+        
+        driver_found = None
+        for path in driver_paths:
+            if path and os.path.isfile(path):
+                driver_found = path
+                break
+        
+        # Obtener versiones
+        chrome_version = "No disponible"
+        if chrome_found:
+            try:
+                result = subprocess.run([chrome_found, '--version'], 
+                                      capture_output=True, text=True, timeout=5)
+                chrome_version = result.stdout.strip()
+            except Exception:
+                chrome_version = "Error obteniendo versión"
+        
+        driver_version = "No disponible"
+        if driver_found:
+            try:
+                result = subprocess.run([driver_found, '--version'], 
+                                      capture_output=True, text=True, timeout=5)
+                driver_version = result.stdout.strip()
+            except Exception:
+                driver_version = "Error obteniendo versión"
+        
+        return {
+            "status": "healthy",
+            "environment": {
+                "is_render": is_render,
+                "is_production": is_production,
+                "python_version": os.sys.version,
+                "working_directory": os.getcwd()
+            },
+            "chrome": {
+                "found": chrome_found is not None,
+                "path": chrome_found,
+                "version": chrome_version
+            },
+            "chromedriver": {
+                "found": driver_found is not None,
+                "path": driver_found,
+                "version": driver_version
+            },
+            "directories": {
+                "temp_results": os.path.exists("temp_results"),
+                "logs": os.path.exists("logs")
+            },
+            "message": "Servidor funcionando correctamente" if chrome_found and driver_found else "Chrome/ChromeDriver no encontrado"
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e),
+            "message": "Error en health check"
+        }
+
 # === CONFIGURACIÓN ===
 app = FastAPI(title="Marriott Automation API", version="2.0.0")
 
